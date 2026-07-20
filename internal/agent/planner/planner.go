@@ -9,6 +9,8 @@ import (
 )
 
 var playbookPattern = regexp.MustCompile(`([\w./-]+\.ya?ml)`)
+var inventoryPattern = regexp.MustCompile(`([\w./-]+\.ini)`)
+var englishTokenPattern = regexp.MustCompile(`[a-z]+`)
 
 // Request separates untrusted semantic text from trusted operator controls.
 type Request struct {
@@ -45,6 +47,16 @@ func Build(request Request) model.GoalPlan {
 		plan.Confidence += 0.4
 		plan.Notes = append(plan.Notes, "playbook from explicit control")
 	}
+	if plan.Inventory == "" {
+		if match := inventoryPattern.FindStringSubmatch(request.Goal); len(match) > 1 {
+			plan.Inventory = match[1]
+			plan.Confidence += 0.1
+			plan.Notes = append(plan.Notes, "inventory inferred from goal")
+		}
+	} else {
+		plan.Confidence += 0.1
+		plan.Notes = append(plan.Notes, "inventory from explicit control")
+	}
 	if plan.Environment == "" {
 		plan.Environment = inferEnvironment(request.Goal)
 		if plan.Environment == "" {
@@ -75,14 +87,20 @@ func Build(request Request) model.GoalPlan {
 
 func inferEnvironment(goal string) string {
 	lower := strings.ToLower(goal)
-	aliases := []struct{ token, value string }{
-		{"production", "prod"}, {"prod", "prod"}, {"生产", "prod"},
-		{"staging", "stage"}, {"stage", "stage"}, {"预发", "stage"},
-		{"testing", "test"}, {"test", "test"}, {"测试", "test"},
-		{"development", "dev"}, {"develop", "dev"}, {"dev", "dev"}, {"开发", "dev"},
+	englishAliases := map[string]string{
+		"production": "prod", "prod": "prod",
+		"staging": "stage", "stage": "stage",
+		"testing": "test", "test": "test",
+		"development": "dev", "develop": "dev", "dev": "dev",
 	}
-	for _, alias := range aliases {
-		if strings.Contains(lower, alias.token) {
+	for _, token := range englishTokenPattern.FindAllString(lower, -1) {
+		if environment, ok := englishAliases[token]; ok {
+			return environment
+		}
+	}
+	chineseAliases := []struct{ token, value string }{{"生产", "prod"}, {"预发", "stage"}, {"测试", "test"}, {"开发", "dev"}}
+	for _, alias := range chineseAliases {
+		if strings.Contains(goal, alias.token) {
 			return alias.value
 		}
 	}

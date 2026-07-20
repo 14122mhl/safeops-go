@@ -32,3 +32,10 @@ func TestBuildMarksMissingPlaybook(t *testing.T) {
 		t.Fatalf("MissingFields = %v, want [playbook]", plan.MissingFields)
 	}
 }
+
+func TestBuildDoesNotInferTestEnvironmentFromTestdataPath(t *testing.T) {
+	plan := Build(Request{Goal: "安全发布 testdata/demo.yml 到 dev", DefaultEnv: "test"})
+	if plan.Environment != "dev" {
+		t.Fatalf("Environment = %q, want dev", plan.Environment)
+	}
+}
