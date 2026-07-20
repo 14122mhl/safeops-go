@@ -9,13 +9,14 @@
 - table-driven tests;
 - deterministic planner and policy interfaces.
 
-## Stage 2 — safe automation core
+## Stage 2 — safe automation core (implemented)
 
-- parse playbooks with `yaml.v3`;
+- parse plays and tasks with `yaml.v3` and normalize FQCN modules;
 - implement `inspect`, `check`, and `run`;
-- execute commands with `context.Context` and `os/exec`;
-- stream output without invoking a shell;
-- add timeout and cancellation tests.
+- execute argv safely with `context.Context` and `os/exec`;
+- capture output without invoking a shell;
+- enforce apply, approval, confidence, checks, and production confirmation gates;
+- add timeout, preflight, CLI, and risk-analysis tests.
 
 ## Stage 3 — Agent Kernel
 

@@ -44,3 +44,7 @@ CLI / HTTP
         -> Command preview or execution
         -> Trace persistence
 ```
+
+## External execution
+
+The engine passes an argument slice directly to `exec.CommandContext`. It never joins user input into a shell command. Timeouts map to exit code 124 and cancellation maps to 130, providing stable evidence across platforms.

@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-第一阶段工程骨架已经实现：
+前两个阶段已经实现：
 
 - 独立 Go module 与分层包结构；
 - `safeops doctor`；
@@ -14,9 +14,14 @@
 - 核心领域模型；
 - 确定性的 goal planner 和 apply policy；
 - Ansible dry-run/apply 命令构造器；
+- `safeops inspect`：解析 play、task、FQCN 模块并计算整体风险；
+- `safeops check`：检查文件、环境、静态风险、syntax、host 和 task list；
+- `safeops run`：预检查后默认 dry-run，支持超时和取消；
+- 显式 `--apply --approve` 与生产 `--confirm PROD` 策略门禁；
+- JSON check report；
 - 单元测试、race test、vet 和 GitHub Actions。
 
-`inspect`、`check`、`run`、完整 `goal` 工作流、DeepSeek、RAG 与 Web Console 将按学习路线逐阶段实现。
+完整 `goal` 工作流、trace、DeepSeek、RAG 与 Web Console 将按学习路线逐阶段实现。
 
 ## 安全边界
 
@@ -35,6 +40,16 @@ go run ./cmd/safeops help
 go run ./cmd/safeops doctor
 go run ./cmd/safeops --config ./config.yaml config init
 go run ./cmd/safeops --config ./config.yaml config show
+go run ./cmd/safeops inspect testdata/demo.yml
+go run ./cmd/safeops check testdata/demo.yml -i testdata/inventory.ini --env dev
+go run ./cmd/safeops run testdata/demo.yml -i testdata/inventory.ini --env dev
+```
+
+`run` 默认向 Ansible 添加 `--check --diff`。非生产真实执行必须显式添加 `--apply --approve`；生产环境还必须添加 `--confirm PROD`。
+
+```bash
+go run ./cmd/safeops run deploy.yml -i inventory.ini --env dev --apply --approve
+go run ./cmd/safeops run deploy.yml -i inventory.ini --env prod --apply --approve --confirm PROD
 ```
 
 构建与验证：
@@ -73,7 +88,7 @@ docs/                        架构和学习记录
 ## 重写路线
 
 1. 基础工程、配置、模型和 CLI。
-2. `inspect/check/run` 与安全命令执行。
+2. `inspect/check/run` 与安全命令执行（已完成）。
 3. Agent Kernel、trace 和端到端测试。
 4. DeepSeek Provider 与本地 RAG。
 5. 嵌入式 Web Console。
