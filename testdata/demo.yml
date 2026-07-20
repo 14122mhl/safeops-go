@@ -1,0 +1,8 @@
+---
+- name: Safeops Go demo
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Show demo message
+      ansible.builtin.debug:
+        msg: "safeops-go dry-run demo"
