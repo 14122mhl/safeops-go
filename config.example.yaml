@@ -26,10 +26,26 @@ risk_rules:
     risk: HIGH
     reason: reboots target machines
     recommendation: use controlled batches and verify redundancy
+  service:
+    risk: HIGH
+    reason: may change service state and availability
+    recommendation: use a staged rollout and verify service health
+  systemd:
+    risk: HIGH
+    reason: may change systemd service state
+    recommendation: limit host scope and verify service impact
   copy:
     risk: MEDIUM
     reason: modifies files on target hosts
     recommendation: review dry-run diff before apply
+  template:
+    risk: MEDIUM
+    reason: renders and writes configuration files
+    recommendation: review generated diff and reload impact
+  file:
+    risk: MEDIUM
+    reason: changes paths, ownership, or permissions
+    recommendation: verify paths and ownership before apply
   debug:
     risk: LOW
     reason: prints information only

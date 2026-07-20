@@ -29,6 +29,28 @@ type CheckResult struct {
 	Remediation string      `json:"remediation,omitempty" yaml:"remediation,omitempty"`
 }
 
+// TaskAnalysis describes one task found in an Ansible playbook.
+type TaskAnalysis struct {
+	PlayIndex      int       `json:"play_index"`
+	PlayName       string    `json:"play_name"`
+	Hosts          string    `json:"hosts"`
+	Section        string    `json:"section"`
+	TaskIndex      int       `json:"task_index"`
+	TaskName       string    `json:"task_name"`
+	Module         string    `json:"module"`
+	Risk           RiskLevel `json:"risk"`
+	Reason         string    `json:"reason"`
+	Recommendation string    `json:"recommendation"`
+}
+
+// PlaybookAnalysis is the static safety view of a playbook.
+type PlaybookAnalysis struct {
+	Playbook        string         `json:"playbook"`
+	Tasks           []TaskAnalysis `json:"tasks"`
+	OverallRisk     RiskLevel      `json:"overall_risk"`
+	Recommendations []string       `json:"recommendations,omitempty"`
+}
+
 // GoalPlan is a normalized change request. Apply can only be set from an
 // explicit operator control; semantic hints must never authorize execution.
 type GoalPlan struct {

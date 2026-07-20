@@ -78,10 +78,14 @@ func Default() Config {
 			MaxChars:     1200,
 		},
 		Risk: map[string]RiskRule{
-			"shell":  {Risk: "HIGH", Reason: "runs arbitrary shell commands", Recommendation: "review the command and limit the host scope"},
-			"reboot": {Risk: "HIGH", Reason: "reboots target machines", Recommendation: "use controlled batches and verify redundancy"},
-			"copy":   {Risk: "MEDIUM", Reason: "modifies files on target hosts", Recommendation: "review dry-run diff before apply"},
-			"debug":  {Risk: "LOW", Reason: "prints information only", Recommendation: "ensure output does not expose secrets"},
+			"shell":    {Risk: "HIGH", Reason: "runs arbitrary shell commands", Recommendation: "review the command and limit the host scope"},
+			"service":  {Risk: "HIGH", Reason: "may change service state and availability", Recommendation: "use a staged rollout and verify service health"},
+			"systemd":  {Risk: "HIGH", Reason: "may change systemd service state", Recommendation: "limit host scope and verify service impact"},
+			"reboot":   {Risk: "HIGH", Reason: "reboots target machines", Recommendation: "use controlled batches and verify redundancy"},
+			"copy":     {Risk: "MEDIUM", Reason: "modifies files on target hosts", Recommendation: "review dry-run diff before apply"},
+			"template": {Risk: "MEDIUM", Reason: "renders and writes configuration files", Recommendation: "review generated diff and reload impact"},
+			"file":     {Risk: "MEDIUM", Reason: "changes paths, ownership, or permissions", Recommendation: "verify paths and ownership before apply"},
+			"debug":    {Risk: "LOW", Reason: "prints information only", Recommendation: "ensure output does not expose secrets"},
 		},
 	}
 }
