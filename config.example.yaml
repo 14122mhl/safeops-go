@@ -1,0 +1,36 @@
+settings:
+  default_engine: ansible
+  default_env: dev
+  require_prod_confirm: true
+  min_goal_confidence_to_apply: 0.75
+api:
+  provider: ""
+  deepseek:
+    enabled: false
+    api_key: ""
+    base_url: https://api.deepseek.com
+    model: deepseek-chat
+    timeout: 30
+rag:
+  enabled: false
+  paths:
+    - docs/playbooks
+  max_documents: 3
+  max_chars: 1200
+risk_rules:
+  shell:
+    risk: HIGH
+    reason: runs arbitrary shell commands
+    recommendation: review the command and limit the host scope
+  reboot:
+    risk: HIGH
+    reason: reboots target machines
+    recommendation: use controlled batches and verify redundancy
+  copy:
+    risk: MEDIUM
+    reason: modifies files on target hosts
+    recommendation: review dry-run diff before apply
+  debug:
+    risk: LOW
+    reason: prints information only
+    recommendation: ensure output does not expose secrets

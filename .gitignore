@@ -1,0 +1,17 @@
+# Build outputs
+/bin/
+/dist/
+/safeops
+
+# Runtime data
+.safeops/
+*.log
+
+# Local configuration and secrets
+config.yaml
+.env
+
+# Editors and operating systems
+.DS_Store
+.vscode/
+.idea/
