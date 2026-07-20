@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/14122mhl/safeops-go/internal/model"
@@ -15,6 +17,18 @@ import (
 
 // Store writes trace and execution evidence beneath a run directory.
 type Store struct{ Directory string }
+
+// Summary is the bounded run information displayed by local clients.
+type Summary struct {
+	RunID       string          `json:"run_id"`
+	Status      string          `json:"status"`
+	Goal        string          `json:"goal"`
+	StartedAt   time.Time       `json:"started_at"`
+	Playbook    string          `json:"playbook,omitempty"`
+	Environment string          `json:"env,omitempty"`
+	Risk        model.RiskLevel `json:"risk,omitempty"`
+	Path        string          `json:"path"`
+}
 
 // NewRunID returns a sortable UTC ID with random collision protection.
 func NewRunID(now time.Time) string {
@@ -48,6 +62,64 @@ func (store Store) WriteLog(runID, content string) (string, error) {
 		return "", fmt.Errorf("write log: %w", err)
 	}
 	return path, nil
+}
+
+// Recent returns newest valid traces and skips malformed or unrelated files.
+func (store Store) Recent(limit int) ([]Summary, error) {
+	if limit <= 0 {
+		limit = 8
+	}
+	entries, err := os.ReadDir(store.directory())
+	if os.IsNotExist(err) {
+		return []Summary{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read trace directory: %w", err)
+	}
+	type candidate struct {
+		path     string
+		modified time.Time
+	}
+	candidates := make([]candidate, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || strings.ToLower(filepath.Ext(entry.Name())) != ".json" {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+		candidates = append(candidates, candidate{path: filepath.Join(store.directory(), entry.Name()), modified: info.ModTime()})
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].modified.After(candidates[j].modified) })
+	capacity := limit
+	if len(candidates) < capacity {
+		capacity = len(candidates)
+	}
+	result := make([]Summary, 0, capacity)
+	for _, candidate := range candidates {
+		if len(result) >= limit {
+			break
+		}
+		data, readErr := os.ReadFile(candidate.path)
+		if readErr != nil {
+			continue
+		}
+		var value model.RunTrace
+		if json.Unmarshal(data, &value) != nil || value.RunID == "" {
+			continue
+		}
+		summary := Summary{RunID: value.RunID, Status: value.Status, Goal: value.Goal, StartedAt: value.StartedAt, Path: candidate.path}
+		if value.Plan != nil {
+			summary.Playbook = value.Plan.Playbook
+			summary.Environment = value.Plan.Environment
+		}
+		if value.Analysis != nil {
+			summary.Risk = value.Analysis.OverallRisk
+		}
+		result = append(result, summary)
+	}
+	return result, nil
 }
 
 func (store Store) directory() string {

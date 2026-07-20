@@ -49,3 +49,29 @@ func TestNewRunIDIsSortableAndUnique(t *testing.T) {
 		t.Fatalf("run ID = %q", first)
 	}
 }
+
+func TestRecentReturnsNewestValidTraces(t *testing.T) {
+	directory := t.TempDir()
+	store := Store{Directory: directory}
+	for index, runID := range []string{"older", "newer"} {
+		value := model.RunTrace{RunID: runID, StartedAt: time.Unix(int64(index), 0).UTC(), Goal: runID + " goal", Status: "planned", Steps: []model.TraceStep{}}
+		path, err := store.Write(value, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		modified := time.Unix(int64(index+1), 0)
+		if err := os.Chtimes(path, modified, modified); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(directory, "broken.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := store.Recent(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].RunID != "newer" {
+		t.Fatalf("Recent() = %+v", runs)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/14122mhl/safeops-go/internal/agent/policy"
+	"github.com/14122mhl/safeops-go/internal/agent/rag"
 	agentService "github.com/14122mhl/safeops-go/internal/agent/service"
 	"github.com/14122mhl/safeops-go/internal/analysis"
 	"github.com/14122mhl/safeops-go/internal/check"
@@ -20,6 +21,7 @@ import (
 	"github.com/14122mhl/safeops-go/internal/engine"
 	"github.com/14122mhl/safeops-go/internal/model"
 	"github.com/14122mhl/safeops-go/internal/trace"
+	"github.com/14122mhl/safeops-go/internal/web"
 	"gopkg.in/yaml.v3"
 )
 
@@ -70,11 +72,44 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runPlaybook(ctx, remaining[1:], *configPath, explicitConfig, *engineName, stdout, stderr)
 	case "goal":
 		return runGoal(ctx, remaining[1:], *configPath, explicitConfig, *engineName, stdout, stderr)
+	case "serve":
+		return runServe(ctx, remaining[1:], *configPath, explicitConfig, *engineName, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n", remaining[0])
 		printHelp(stderr)
 		return 2
 	}
+}
+
+func runServe(ctx context.Context, args []string, configPath string, explicitConfig bool, engineName string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	host := flags.String("host", "127.0.0.1", "bind host")
+	port := flags.Int("port", 8765, "bind port")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *port < 1 || *port > 65535 {
+		fmt.Fprintln(stderr, "usage: safeops serve [--host host] [--port port]")
+		return 2
+	}
+	cfg, ok := loadRuntimeConfig(configPath, explicitConfig, stderr)
+	if !ok {
+		return 1
+	}
+	if engineName != "" {
+		cfg.Settings.DefaultEngine = engineName
+	}
+	store := trace.Store{}
+	agent := agentService.NewFromConfig(cfg, engine.ExecRunner{}, store)
+	documents := rag.LocalSearcher{Paths: cfg.RAG.Paths, MaxDocuments: cfg.RAG.MaxDocuments, MaxChars: cfg.RAG.MaxChars}
+	address := fmt.Sprintf("%s:%d", *host, *port)
+	fmt.Fprintf(stdout, "safeops-go Web Console: http://%s\n", address)
+	if err := (web.Server{Config: cfg, Agent: agent, TraceStore: store, Documents: documents}).Serve(ctx, address); err != nil {
+		fmt.Fprintf(stderr, "serve: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 type consoleSink struct{ stdout, stderr io.Writer }
@@ -94,7 +129,7 @@ func runGoal(ctx context.Context, args []string, configPath string, explicitConf
 		return 1
 	}
 	request.Engine = effectiveEngine(engineName, cfg)
-	response := (agentService.Service{Config: cfg, Runner: engine.ExecRunner{}, TraceStore: trace.Store{}}).Run(ctx, request, consoleSink{stdout: stdout, stderr: stderr})
+	response := agentService.NewFromConfig(cfg, engine.ExecRunner{}, trace.Store{}).Run(ctx, request, consoleSink{stdout: stdout, stderr: stderr})
 	return response.ExitCode
 }
 
@@ -380,6 +415,7 @@ func printHelp(writer io.Writer) {
 		"goal           evaluate a natural-language goal through the Agent Kernel",
 		"inspect        analyze playbook tasks and configured risk",
 		"run            preflight then dry-run; requires --apply --approve for changes",
+		"serve          start the embedded local Web Console",
 		"version       print build version",
 	}
 	sort.Strings(commands)
