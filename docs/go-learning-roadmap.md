@@ -18,12 +18,13 @@
 - enforce apply, approval, confidence, checks, and production confirmation gates;
 - add timeout, preflight, CLI, and risk-analysis tests.
 
-## Stage 3 — Agent Kernel
+## Stage 3 — Agent Kernel (implemented)
 
-- implement the shared service layer;
-- add templates, clarification, and confidence;
-- persist JSON traces and execution logs;
-- add CLI end-to-end tests.
+- implement a shared service used by CLI and future HTTP adapters;
+- add release, rollback, and incident templates;
+- add clarification, confidence, and approval gates;
+- atomically persist JSON traces and execution logs;
+- add service, trace, template, and CLI end-to-end tests.
 
 ## Stage 4 — LLM and retrieval
 

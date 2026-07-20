@@ -3,6 +3,7 @@
 - [x] Clarify project requirements: pure Go behavior-oriented rewrite of safeops.
 - [x] Scaffold the independent project under `/Users/hemu/safeops-go`.
 - [x] Add the initial configuration, model, planner, policy, engine, and CLI packages.
+- [x] Implement inspect, check, run, the shared Agent Kernel, and auditable traces.
 - [x] No additional VS Code extensions are required.
 - [x] Compile and test the initial project.
 - [x] Add build tasks through the Makefile.

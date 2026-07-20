@@ -48,3 +48,16 @@ CLI / HTTP
 ## External execution
 
 The engine passes an argument slice directly to `exec.CommandContext`. It never joins user input into a shell command. Timeouts map to exit code 124 and cancellation maps to 130, providing stable evidence across platforms.
+
+## Agent Kernel
+
+`internal/agent/service` is the application boundary shared by presentation adapters. It accepts trusted operator controls separately from semantic goal text, then executes this sequence:
+
+1. deterministic planning and template matching;
+2. missing-field clarification;
+3. static risk analysis and preflight checks;
+4. independent policy evaluation;
+5. plan-only preview or context-aware execution;
+6. atomic trace and log persistence on every terminal path.
+
+The CLI implements only parsing and output adaptation; future HTTP handlers must call the same service rather than duplicating policy logic.

@@ -13,11 +13,13 @@ import (
 	"time"
 
 	"github.com/14122mhl/safeops-go/internal/agent/policy"
+	agentService "github.com/14122mhl/safeops-go/internal/agent/service"
 	"github.com/14122mhl/safeops-go/internal/analysis"
 	"github.com/14122mhl/safeops-go/internal/check"
 	"github.com/14122mhl/safeops-go/internal/config"
 	"github.com/14122mhl/safeops-go/internal/engine"
 	"github.com/14122mhl/safeops-go/internal/model"
+	"github.com/14122mhl/safeops-go/internal/trace"
 	"gopkg.in/yaml.v3"
 )
 
@@ -66,11 +68,73 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runCheck(ctx, remaining[1:], *configPath, explicitConfig, *engineName, stdout, stderr)
 	case "run":
 		return runPlaybook(ctx, remaining[1:], *configPath, explicitConfig, *engineName, stdout, stderr)
+	case "goal":
+		return runGoal(ctx, remaining[1:], *configPath, explicitConfig, *engineName, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n", remaining[0])
 		printHelp(stderr)
 		return 2
 	}
+}
+
+type consoleSink struct{ stdout, stderr io.Writer }
+
+func (sink consoleSink) Line(value string)   { fmt.Fprintln(sink.stdout, value) }
+func (sink consoleSink) Stdout(value string) { fmt.Fprint(sink.stdout, value) }
+func (sink consoleSink) Stderr(value string) { fmt.Fprint(sink.stderr, value) }
+
+func runGoal(ctx context.Context, args []string, configPath string, explicitConfig bool, engineName string, stdout, stderr io.Writer) int {
+	request, err := parseGoalRequest(args, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	cfg, ok := loadRuntimeConfig(configPath, explicitConfig, stderr)
+	if !ok {
+		return 1
+	}
+	request.Engine = effectiveEngine(engineName, cfg)
+	response := (agentService.Service{Config: cfg, Runner: engine.ExecRunner{}, TraceStore: trace.Store{}}).Run(ctx, request, consoleSink{stdout: stdout, stderr: stderr})
+	return response.ExitCode
+}
+
+func parseGoalRequest(args []string, stderr io.Writer) (agentService.Request, error) {
+	var request agentService.Request
+	var dryRun bool
+	goalEnd := 0
+	for goalEnd < len(args) && !strings.HasPrefix(args[goalEnd], "-") {
+		goalEnd++
+	}
+	if goalEnd == 0 {
+		return request, fmt.Errorf("usage: safeops goal <goal...> [options]")
+	}
+	request.Goal = strings.Join(args[:goalEnd], " ")
+	flags := flag.NewFlagSet("goal", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&request.Playbook, "playbook", "", "playbook path; overrides goal inference")
+	flags.StringVar(&request.Inventory, "inventory", "", "inventory file or directory")
+	flags.StringVar(&request.Inventory, "i", "", "inventory file or directory")
+	flags.StringVar(&request.Environment, "env", "", "environment name")
+	flags.StringVar(&request.Limit, "limit", "", "limit target hosts")
+	flags.Var((*stringList)(&request.ExtraVars), "extra-var", "extra variable; repeatable")
+	flags.Var((*stringList)(&request.ExtraVars), "e", "extra variable; repeatable")
+	flags.BoolVar(&request.ExplicitApply, "apply", false, "request real execution after policy gates")
+	flags.BoolVar(&dryRun, "dry-run", false, "force non-mutating execution mode")
+	flags.BoolVar(&request.Approved, "approve", false, "approve apply policy gate")
+	flags.BoolVar(&request.PlanOnly, "plan-only", false, "plan, check, and preview without execution")
+	flags.StringVar(&request.ProductionConfirm, "confirm", "", "production confirmation value")
+	flags.StringVar(&request.TraceOut, "trace-out", "", "write trace to a specific path")
+	flags.DurationVar(&request.Timeout, "timeout", 10*time.Minute, "check and execution timeout")
+	if err := flags.Parse(args[goalEnd:]); err != nil {
+		return request, err
+	}
+	if request.ExplicitApply && dryRun {
+		return request, fmt.Errorf("--apply and --dry-run cannot be used together")
+	}
+	if flags.NArg() != 0 {
+		return request, fmt.Errorf("unexpected goal arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	return request, nil
 }
 
 type playbookOptions struct {
@@ -313,6 +377,7 @@ func printHelp(writer io.Writer) {
 		"config init   write a conservative default configuration",
 		"config show   print effective configuration with secrets masked",
 		"doctor        inspect local Go and Ansible tooling",
+		"goal           evaluate a natural-language goal through the Agent Kernel",
 		"inspect        analyze playbook tasks and configured risk",
 		"run            preflight then dry-run; requires --apply --approve for changes",
 		"version       print build version",
