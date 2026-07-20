@@ -31,3 +31,21 @@ jobs:
 
       - name: Build CLI
         run: go build -o bin/safeops ./cmd/safeops
+
+  cross-platform-build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+
+      - name: Compile CLI
+        run: go build ./cmd/safeops

@@ -32,11 +32,13 @@ An apply operation is possible only when:
 4. confidence meets policy;
 5. production requests include the required confirmation.
 
-## Planned request flow
+## Request flow
 
 ```text
 CLI / HTTP
     -> Agent service
+        -> Local RAG context (optional)
+        -> DeepSeek goal hints (optional, validated)
         -> Planner
         -> Static analysis
         -> Preflight checks
@@ -60,4 +62,16 @@ The engine passes an argument slice directly to `exec.CommandContext`. It never 
 5. plan-only preview or context-aware execution;
 6. atomic trace and log persistence on every terminal path.
 
-The CLI implements only parsing and output adaptation; future HTTP handlers must call the same service rather than duplicating policy logic.
+The CLI and HTTP handlers implement only parsing and output adaptation. Both call the same service rather than duplicating policy logic.
+
+## Intelligence and fallback
+
+The DeepSeek client implements a narrow `GoalParser` contract and requests structured JSON. Provider output is clamped and candidate paths are validated against the current workspace. Network, credential, or decoding failures become trace notes and fall back to local planning.
+
+Local RAG scans bounded Markdown/TXT content and ranks token overlap, including Chinese bigrams. This keeps the retrieval path deterministic and understandable without introducing a vector database into a learning project.
+
+## Web adapter
+
+The embedded console uses only `net/http`, `embed`, and browser-native JavaScript. Its API defaults goal requests to plan-only, limits JSON bodies, rejects unknown fields, masks configuration secrets, exposes bounded recent trace summaries, and shuts down through the process context.
+
+The default loopback bind is intentional. Authentication, TLS termination, RBAC, distributed jobs, and secret management are explicitly outside this portfolio project's scope.

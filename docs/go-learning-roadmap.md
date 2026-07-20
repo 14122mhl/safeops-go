@@ -26,21 +26,29 @@
 - atomically persist JSON traces and execution logs;
 - add service, trace, template, and CLI end-to-end tests.
 
-## Stage 4 — LLM and retrieval
+## Stage 4 — LLM and retrieval (implemented)
 
 - define a provider interface;
 - implement a DeepSeek-compatible HTTP client;
 - retrieve local operational documents;
 - keep reasoning isolated from authorization.
 
-## Stage 5 — Web Console
+## Stage 5 — Web Console (implemented)
 
 - expose JSON APIs with `net/http`;
 - embed static assets with `embed`;
-- add graceful shutdown and concurrent request tests.
+- add graceful shutdown and HTTP adapter tests.
 
-## Stage 6 — engineering finish
+## Stage 6 — engineering finish (implemented baseline)
 
-- run race tests and fuzz parsers;
-- add cross-platform builds;
-- document behavior parity and remaining differences.
+- run race tests, vet, formatting checks, and API tests;
+- add cross-platform compile checks;
+- document learning value, scope, and production differences.
+
+## Optional exercises
+
+- add fuzz tests for YAML and JSON boundaries;
+- replace the lexical scorer with a pluggable embedding retriever;
+- add Server-Sent Events for live execution output;
+- add authentication before allowing a non-loopback deployment;
+- implement another automation engine through the existing interfaces.
