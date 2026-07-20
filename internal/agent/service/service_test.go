@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/14122mhl/safeops-go/internal/agent/rag"
 	"github.com/14122mhl/safeops-go/internal/config"
 	"github.com/14122mhl/safeops-go/internal/engine"
+	"github.com/14122mhl/safeops-go/internal/provider"
 	"github.com/14122mhl/safeops-go/internal/trace"
 )
 
@@ -32,6 +34,19 @@ func (runner *fakeRunner) Run(_ context.Context, command []string) engine.Result
 type captureSink struct {
 	lines          []string
 	stdout, stderr strings.Builder
+}
+
+type fakeGoalParser struct{ request provider.Request }
+
+func (parser *fakeGoalParser) ParseGoal(_ context.Context, request provider.Request) (provider.Hints, error) {
+	parser.request = request
+	return provider.Hints{ApplyIntent: true, Confidence: .9, Notes: []string{"semantic note"}}, nil
+}
+
+type fakeRetriever struct{}
+
+func (fakeRetriever) Search(context.Context, string) ([]rag.Document, error) {
+	return []rag.Document{{Path: "ops.md", Title: "Ops", Excerpt: "dry-run first", Score: 1}}, nil
 }
 
 func (sink *captureSink) Line(value string)   { sink.lines = append(sink.lines, value) }
@@ -111,5 +126,22 @@ func TestRunBlocksApplyWithoutApproval(t *testing.T) {
 	}
 	if len(runner.calls) != 3 {
 		t.Fatalf("runner calls = %d, want no execution", len(runner.calls))
+	}
+}
+
+func TestRunUsesRetrievedContextWithoutAuthorizingApply(t *testing.T) {
+	service, playbook, inventory, _ := serviceFixture(t)
+	parser := &fakeGoalParser{}
+	service.GoalParser = parser
+	service.Retriever = fakeRetriever{}
+	response := service.Run(context.Background(), Request{Goal: "发布", Playbook: playbook, Inventory: inventory, Environment: "dev", PlanOnly: true}, &captureSink{})
+	if response.ExitCode != 0 || response.Trace.Plan.Apply {
+		t.Fatalf("response = %+v", response)
+	}
+	if !strings.Contains(parser.request.RetrievedContext, "dry-run first") {
+		t.Fatalf("provider context = %q", parser.request.RetrievedContext)
+	}
+	if !strings.Contains(strings.Join(response.Trace.Plan.Notes, " "), "explicit --apply is required") {
+		t.Fatalf("notes = %v", response.Trace.Plan.Notes)
 	}
 }

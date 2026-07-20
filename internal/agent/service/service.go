@@ -4,17 +4,25 @@ package service
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/14122mhl/safeops-go/internal/agent/planner"
 	"github.com/14122mhl/safeops-go/internal/agent/policy"
+	"github.com/14122mhl/safeops-go/internal/agent/rag"
 	changeTemplate "github.com/14122mhl/safeops-go/internal/agent/template"
 	"github.com/14122mhl/safeops-go/internal/analysis"
 	"github.com/14122mhl/safeops-go/internal/check"
 	"github.com/14122mhl/safeops-go/internal/config"
 	"github.com/14122mhl/safeops-go/internal/engine"
 	"github.com/14122mhl/safeops-go/internal/model"
+	"github.com/14122mhl/safeops-go/internal/provider"
+	"github.com/14122mhl/safeops-go/internal/provider/deepseek"
 	"github.com/14122mhl/safeops-go/internal/trace"
 )
 
@@ -42,9 +50,13 @@ type Request struct {
 
 // Response is suitable for CLI, HTTP, and future UI adapters.
 type Response struct {
-	ExitCode                                 int
-	Status, RunID, TracePath, LogPath, Error string
-	Trace                                    model.RunTrace
+	ExitCode  int            `json:"exit_code"`
+	Status    string         `json:"status"`
+	RunID     string         `json:"run_id"`
+	TracePath string         `json:"trace_path,omitempty"`
+	LogPath   string         `json:"log_path,omitempty"`
+	Error     string         `json:"error,omitempty"`
+	Trace     model.RunTrace `json:"trace"`
 }
 
 // Service owns dependencies used by one or more goal requests.
@@ -53,6 +65,24 @@ type Service struct {
 	Runner     engine.Runner
 	TraceStore trace.Store
 	Now        func() time.Time
+	GoalParser provider.GoalParser
+	Retriever  rag.Searcher
+}
+
+// NewFromConfig assembles optional intelligence while preserving local fallback behavior.
+func NewFromConfig(cfg config.Config, runner engine.Runner, store trace.Store) Service {
+	result := Service{Config: cfg, Runner: runner, TraceStore: store}
+	if cfg.RAG.Enabled {
+		result.Retriever = rag.LocalSearcher{Paths: cfg.RAG.Paths, MaxDocuments: cfg.RAG.MaxDocuments, MaxChars: cfg.RAG.MaxChars}
+	}
+	if cfg.API.Provider == "deepseek" && cfg.API.DeepSeek.Enabled {
+		apiKey := cfg.API.DeepSeek.APIKey
+		if apiKey == "" {
+			apiKey = os.Getenv("DEEPSEEK_API_KEY")
+		}
+		result.GoalParser = deepseek.Client{APIKey: apiKey, BaseURL: cfg.API.DeepSeek.BaseURL, Model: cfg.API.DeepSeek.Model, HTTPClient: &http.Client{Timeout: time.Duration(cfg.API.DeepSeek.Timeout) * time.Second}}
+	}
+	return result
 }
 
 // Run evaluates and optionally executes a natural-language change goal.
@@ -71,13 +101,42 @@ func (service Service) Run(ctx context.Context, request Request, output Sink) Re
 	started := now().UTC()
 	runTrace := model.RunTrace{RunID: trace.NewRunID(started), StartedAt: started, Goal: request.Goal, Status: "running", Steps: []model.TraceStep{}}
 
-	plan := planner.Build(planner.Request{Goal: request.Goal, Playbook: request.Playbook, Inventory: request.Inventory, Environment: request.Environment, Limit: request.Limit, ExtraVars: request.ExtraVars, ExplicitApply: request.ExplicitApply, DefaultEnv: service.Config.Settings.DefaultEnv})
-	if matched, ok := changeTemplate.Match(request.Goal); ok {
+	matched, templateMatched := changeTemplate.Match(request.Goal)
+	var documents []rag.Document
+	intelligenceNotes := []string{}
+	if service.Retriever != nil {
+		var err error
+		documents, err = service.Retriever.Search(ctx, request.Goal)
+		if err != nil {
+			intelligenceNotes = append(intelligenceNotes, "RAG fallback: "+err.Error())
+			output.Line("[WARN] " + intelligenceNotes[len(intelligenceNotes)-1])
+		}
+	}
+	playbookCandidates := workspaceCandidates(".yml", ".yaml")
+	inventoryCandidates := workspaceCandidates(".ini")
+	var hints *provider.Hints
+	if service.GoalParser != nil {
+		templateID := ""
+		if templateMatched {
+			templateID = matched.ID
+		}
+		parsed, err := service.GoalParser.ParseGoal(ctx, provider.Request{Goal: request.Goal, PlaybookCandidates: playbookCandidates, InventoryCandidates: inventoryCandidates, TemplateID: templateID, RetrievedContext: rag.PromptContext(documents)})
+		if err != nil {
+			intelligenceNotes = append(intelligenceNotes, "provider fallback: "+err.Error())
+			output.Line("[WARN] " + intelligenceNotes[len(intelligenceNotes)-1])
+		} else {
+			hints = &parsed
+		}
+	}
+	plan := planner.Build(planner.Request{Goal: request.Goal, Playbook: request.Playbook, Inventory: request.Inventory, Environment: request.Environment, Limit: request.Limit, ExtraVars: request.ExtraVars, ExplicitApply: request.ExplicitApply, DefaultEnv: service.Config.Settings.DefaultEnv, Hints: hints, PlaybookCandidates: playbookCandidates, InventoryCandidates: inventoryCandidates})
+	plan.Notes = append(plan.Notes, intelligenceNotes...)
+	if templateMatched {
 		plan.TemplateID = matched.ID
-		plan.RecommendedSteps = append([]string(nil), matched.RecommendedSteps...)
-		plan.RiskNotes = append([]string(nil), matched.RiskNotes...)
+		plan.RecommendedSteps = uniqueStrings(append(plan.RecommendedSteps, matched.RecommendedSteps...))
+		plan.RiskNotes = uniqueStrings(append(plan.RiskNotes, matched.RiskNotes...))
 		plan.Notes = append(plan.Notes, "template matched: "+matched.ID)
 	}
+	runTrace.Metadata = map[string]any{"provider_enabled": service.GoalParser != nil, "retrieved_documents": documentPaths(documents)}
 	runTrace.Plan = &plan
 	emitPlan(output, plan)
 	if len(plan.MissingFields) > 0 {
@@ -155,7 +214,10 @@ func (service Service) Run(ctx context.Context, request Request, output Sink) Re
 	}
 	logPath, logErr := service.TraceStore.WriteLog(runTrace.RunID, result.Stdout+"\n"+result.Stderr)
 	if logPath != "" {
-		runTrace.Metadata = map[string]any{"log_path": logPath}
+		if runTrace.Metadata == nil {
+			runTrace.Metadata = map[string]any{}
+		}
+		runTrace.Metadata["log_path"] = logPath
 	}
 	if logErr != nil {
 		runTrace.Error = logErr.Error()
@@ -220,3 +282,47 @@ func valueOr(value, fallback string) string {
 	return value
 }
 func boolPointer(value bool) *bool { return &value }
+
+func workspaceCandidates(extensions ...string) []string {
+	allowed := map[string]bool{}
+	for _, extension := range extensions {
+		allowed[extension] = true
+	}
+	ignored := map[string]bool{".git": true, ".safeops": true, "bin": true, "dist": true, "node_modules": true}
+	var result []string
+	_ = filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() && path != "." && ignored[entry.Name()] {
+			return filepath.SkipDir
+		}
+		if !entry.IsDir() && allowed[strings.ToLower(filepath.Ext(path))] {
+			relative, relativeErr := filepath.Rel(".", path)
+			if relativeErr == nil {
+				result = append(result, filepath.ToSlash(relative))
+			}
+		}
+		return nil
+	})
+	sort.Strings(result)
+	return result
+}
+func documentPaths(documents []rag.Document) []string {
+	result := make([]string, 0, len(documents))
+	for _, document := range documents {
+		result = append(result, document.Path)
+	}
+	return result
+}
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != "" && !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	return result
+}
